@@ -11,34 +11,43 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var items: [Item]
+    @State private var songTitle = "Song Title"
+    @State private var artistName = "Artist Name"
+    @State private var isPlaying: Bool = false
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
+        VStack {
+            Spacer()
+            
+            VStack(spacing: 16) {
+                Image(systemName: "music.note")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 240, height: 240)
+                    .background(Color.gray.opacity(0.2))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                
+                Text(songTitle)
+                    .font(.title)
+                    .fontWeight(.semibold)
+                
+                Text(artistName)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                
+                Button {
+                    isPlaying.toggle()
+                } label: {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title)
+                        .padding()
                 }
-                .onDelete(perform: deleteItems)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+            .padding()
+            Spacer()
         }
-    }
 
+    }
     private func addItem() {
         withAnimation {
             let newItem = Item(timestamp: Date())
