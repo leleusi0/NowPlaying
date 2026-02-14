@@ -8,6 +8,32 @@
 import SwiftUI
 import MusicKit
 import SwiftData
+import AVFoundation
+
+// MARK: - Simple AVFoundation audio controller
+// This controller lets us play a local audio file without needing a MusicKit developer token.
+// It is intentionally minimal and focused on learning play/pause wiring with SwiftUI state.
+final class AudioPlayerController: ObservableObject {
+    private var player: AVPlayer?
+    @Published var isPlaying: Bool = false
+
+    /// Load an audio URL into the AVPlayer
+    func load(url: URL) {
+        player = AVPlayer(url: url)
+    }
+
+    /// Start playback and mark the state as playing
+    func play() {
+        player?.play()
+        isPlaying = true
+    }
+
+    /// Pause playback and mark the state as not playing
+    func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+}
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
@@ -17,6 +43,9 @@ struct ContentView: View {
     @State private var isPlaying: Bool = false
     @State private var authStatus: MusicAuthorization.Status = .notDetermined
     @State private var authErrorMessage: String?
+
+    // AVFoundation-based player for learning without MusicKit developer token
+    @StateObject private var audioController = AudioPlayerController()
 
     var body: some View { // Start building the UI
         VStack {
@@ -43,15 +72,29 @@ struct ContentView: View {
                 // For learning purposes, we simply toggle the icon if not authorized,
                 // and you can later wire this up to real MusicKit playback.
                 Button {
-                    // If not authorized, show a friendly message and do not proceed
-                    if authStatus != .authorized {
-                        authErrorMessage = "Please allow Apple Music access to use playback features."
-                        return
+                    // For learning without a MusicKit developer token, we use AVFoundation to play
+                    // a local bundled audio file. This avoids the "failed to request developer token" error.
+
+                    // Ensure we have loaded a sample file. You should add a short MP3 named
+                    // "sample.mp3" to your app target (File > Add Files to "NowPlaying"...).
+                    // If it's not present, show a helpful message.
+                    if audioControllerIsUnloaded {
+                        if let url = Bundle.main.url(forResource: "sample", withExtension: "mp3") {
+                            audioController.load(url: url)
+                        } else {
+                            authErrorMessage = "Missing sample.mp3 in the app bundle. Add a small audio file named 'sample.mp3' to try playback."
+                            return
+                        }
                     }
 
-                    // If authorized, this is where you'd interact with MusicKit's player.
-                    // For now, we just toggle the UI state to demonstrate the flow.
-                    isPlaying.toggle()
+                    // Toggle play/pause using the controller
+                    if audioController.isPlaying {
+                        audioController.pause()
+                        isPlaying = false
+                    } else {
+                        audioController.play()
+                        isPlaying = true
+                    }
                 } label: {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.title)
@@ -91,14 +134,26 @@ struct ContentView: View {
             
             Spacer()
         }
-        // MARK: - .task modifier
-        // `.task` runs an async task tied to this view's lifecycle. It starts when
-        // the view appears and cancels when the view disappears. This is the
-        // recommended way to kick off async work (like requesting authorization)
-        // from SwiftUI views.
         .task {
+            // Request MusicKit access (kept for future use when you add a developer token).
             await requestMusicAccess()
+
+            // Also attempt to preload a local sample so the first play is immediate.
+            // Make sure you have added a file named "sample.mp3" to your app bundle.
+            if let url = Bundle.main.url(forResource: "sample", withExtension: "mp3") {
+                audioController.load(url: url)
+            }
         }
+    }
+
+    // MARK: - Helper to detect if our AVPlayer has been loaded yet
+    private var audioControllerIsUnloaded: Bool {
+        // We infer unloaded state by inspecting the controller's internal player via KVC-safe approach.
+        // Since `player` is private, we can alternatively track load via `isPlaying` never being true
+        // and attempting to load lazily when the button is tapped. For clarity, we try to load when
+        // `isPlaying` is false and the controller hasn't started playback yet.
+        // Here, we simply consider it unloaded if we've never started playback.
+        return !isPlaying && !audioController.isPlaying
     }
 
     // MARK: - Authorization helpers
@@ -135,6 +190,29 @@ struct ContentView: View {
                 authErrorMessage = nil
             }
         }
+    }
+    
+    // NOTE: The following MusicKit catalog calls typically require a valid Developer Token.
+
+    @MainActor
+    func searchSongs(query: String) async throws -> [Song] {
+        // Create a search request for songs
+        var request = MusicCatalogSearchRequest(term: query, types: [Song.self])
+        request.limit = 10
+        let response = try await request.response()
+        return Array(response.songs)
+    }
+
+    @MainActor
+    func playSong(_ song: Song) async throws {
+        // Use the shared application music player
+        let player = ApplicationMusicPlayer.shared
+
+        // Prepare the queue with the selected song
+        player.queue = [song]
+
+        // Start playback
+        try await player.play()
     }
 
     /// Converts a MusicAuthorization.Status into a friendly, user-facing message.
@@ -175,3 +253,4 @@ struct ContentView: View {
     ContentView()
         .modelContainer(for: Item.self, inMemory: true)
 }
+
